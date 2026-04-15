@@ -31,6 +31,8 @@ pub struct UiConfig {
     pub max_rows: usize,
     /// Default maximum column width
     pub column_width: usize,
+    /// Total number of top rows to keep visible in TUI mode
+    pub frozen_rows: usize,
     /// Number of leading columns to keep visible during horizontal scrolling
     pub frozen_columns: usize,
     /// 1-based column indexes that should render with width 1 in TUI mode
@@ -61,6 +63,7 @@ impl Default for UiConfig {
         Self {
             max_rows: 50,
             column_width: 30,
+            frozen_rows: 1,
             frozen_columns: 0,
             fixed_width_1_columns: Vec::new(),
         }
@@ -161,6 +164,9 @@ default = "Default"
 max_rows = 50
 # Default maximum column width in characters
 column_width = 30
+# Total number of top rows to keep visible in TUI mode
+# 1 means the header row only, 2 means header + first data row
+frozen_rows = 1
 # Number of leading columns to keep visible during horizontal scrolling in TUI mode
 frozen_columns = 0
 # 1-based column indexes that should render with width 1 in TUI mode
@@ -343,6 +349,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.theme.default, "Default");
         assert_eq!(config.ui.max_rows, 50);
+        assert_eq!(config.ui.frozen_rows, 1);
         assert_eq!(config.ui.frozen_columns, 0);
         assert!(config.ui.fixed_width_1_columns.is_empty());
         assert_eq!(config.keybindings.profile, "default");
@@ -396,8 +403,9 @@ mod tests {
 
     #[test]
     fn test_toml_parsing_fixed_width_columns() {
-        let config_str = "[ui]\nfixed_width_1_columns = [1, 3, 7]\n";
+        let config_str = "[ui]\nfrozen_rows = 2\nfixed_width_1_columns = [1, 3, 7]\n";
         let config: Config = toml::from_str(config_str).expect("Failed to parse TOML");
+        assert_eq!(config.ui.frozen_rows, 2);
         assert_eq!(config.ui.fixed_width_1_columns, vec![1, 3, 7]);
     }
 

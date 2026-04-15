@@ -47,6 +47,10 @@ max_rows = 50
 # Can be overridden with -w flag: xleak file.xlsx -w 40
 column_width = 30
 
+# Total number of top rows to keep visible in TUI mode
+# 1 means the header row only, 2 means header + first data row
+frozen_rows = 1
+
 # Number of leading columns to keep visible during horizontal scrolling in TUI mode
 # Example: set to 3 to keep columns A-C fixed while scrolling right with -i --horizontal-scroll
 frozen_columns = 0
@@ -166,6 +170,7 @@ profile = "default"
 # [ui]
 # max_rows = 100
 # column_width = 40
+# frozen_rows = 2
 # frozen_columns = 3
 # fixed_width_1_columns = [1]
 #
