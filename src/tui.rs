@@ -2,7 +2,7 @@ use crate::workbook::{CellValue, LazySheetData, SheetData, Workbook};
 use anyhow::{Context, Result};
 use arboard::Clipboard;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
