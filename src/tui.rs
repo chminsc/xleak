@@ -501,6 +501,8 @@ pub struct TuiState {
     config: crate::config::Config, // User configuration
     runtime_frozen_rows: Option<usize>,
     runtime_frozen_columns: Option<usize>,
+    last_table_height: usize,
+    last_viewport_width: usize,
 }
 
 impl TuiState {
@@ -566,6 +568,8 @@ impl TuiState {
             config: config.clone(),
             runtime_frozen_rows: None,
             runtime_frozen_columns: None,
+            last_table_height: 0,
+            last_viewport_width: 0,
         };
 
         // Calculate column widths if horizontal scrolling is enabled
@@ -1179,8 +1183,48 @@ impl TuiState {
         // Horizontal scroll will be updated in render to show the last column
     }
 
+    fn worksheet_row_number_for_cursor(cursor_row: usize) -> usize {
+        cursor_row + 2
+    }
+
     fn freeze_panes_values_from_cursor(cursor_row: usize, cursor_col: usize) -> (usize, usize) {
-        (cursor_row.max(1), cursor_col)
+        (
+            Self::worksheet_row_number_for_cursor(cursor_row).saturating_sub(1),
+            cursor_col,
+        )
+    }
+
+    fn clamp_frozen_rows_for_viewport(requested_rows: usize, table_height: usize) -> usize {
+        if table_height <= 1 {
+            1
+        } else {
+            requested_rows.clamp(1, table_height)
+        }
+    }
+
+    fn clamp_frozen_columns_for_viewport(
+        requested_columns: usize,
+        column_widths: &[usize],
+        viewport_width: usize,
+    ) -> usize {
+        if requested_columns == 0 || column_widths.len() <= 1 || viewport_width == 0 {
+            return 0;
+        }
+
+        let max_candidate = requested_columns.min(column_widths.len().saturating_sub(1));
+        let mut used_width = 0usize;
+        let mut allowed = 0usize;
+
+        for frozen_count in 0..max_candidate {
+            used_width += column_widths[frozen_count] + 1;
+            let next_width = column_widths[frozen_count + 1] + 1;
+            if used_width + next_width > viewport_width {
+                break;
+            }
+            allowed = frozen_count + 1;
+        }
+
+        allowed
     }
 
     fn freeze_panes_at_cursor(&mut self) {
@@ -1193,17 +1237,39 @@ impl TuiState {
 
         let (frozen_rows, frozen_columns) =
             Self::freeze_panes_values_from_cursor(self.cursor_row, self.cursor_col);
-        self.runtime_frozen_rows = Some(frozen_rows.min(self.sheet_data.height().saturating_add(1)));
-        self.runtime_frozen_columns = Some(frozen_columns.min(self.sheet_data.width()));
+        let requested_rows = frozen_rows.min(self.sheet_data.height().saturating_add(1));
+        let requested_columns = frozen_columns.min(self.sheet_data.width());
+        let applied_rows =
+            Self::clamp_frozen_rows_for_viewport(requested_rows, self.last_table_height);
+        let applied_columns = Self::clamp_frozen_columns_for_viewport(
+            requested_columns,
+            &self.column_widths,
+            self.last_viewport_width,
+        );
+
+        self.runtime_frozen_rows = Some(applied_rows);
+        self.runtime_frozen_columns = Some(applied_columns);
         self.scroll_offset = 0;
         self.horizontal_scroll_offset = 0;
-        self.copy_feedback = Some((
+
+        let freeze_message = if applied_rows != requested_rows || applied_columns != requested_columns
+        {
+            format!(
+                "Frozen panes at {} (applied rows: {}, cols: {} in current window)",
+                self.current_cell_address(),
+                self.frozen_rows(),
+                self.frozen_columns()
+            )
+        } else {
             format!(
                 "Frozen panes at {} (rows: {}, cols: {})",
                 self.current_cell_address(),
                 self.frozen_rows(),
                 self.frozen_columns()
-            ),
+            )
+        };
+        self.copy_feedback = Some((
+            freeze_message,
             Instant::now(),
         ));
     }
@@ -1654,6 +1720,8 @@ impl TuiState {
         // Calculate visible viewport
         let table_height = chunks[0].height.saturating_sub(3) as usize; // Account for borders and header
         let viewport_width = chunks[0].width.saturating_sub(2) as usize; // Account for borders
+        self.last_table_height = table_height;
+        self.last_viewport_width = viewport_width;
 
         // Update scroll to keep cursor visible
         self.update_scroll(table_height);
@@ -2637,7 +2705,32 @@ mod tests {
     #[test]
     fn test_freeze_panes_values_from_cursor() {
         assert_eq!(TuiState::freeze_panes_values_from_cursor(0, 0), (1, 0));
-        assert_eq!(TuiState::freeze_panes_values_from_cursor(6, 4), (6, 4));
+        assert_eq!(TuiState::freeze_panes_values_from_cursor(6, 4), (7, 4));
+    }
+
+    #[test]
+    fn test_worksheet_row_number_for_cursor() {
+        assert_eq!(TuiState::worksheet_row_number_for_cursor(0), 2);
+        assert_eq!(TuiState::worksheet_row_number_for_cursor(6), 8);
+    }
+
+    #[test]
+    fn test_clamp_frozen_rows_for_viewport() {
+        assert_eq!(TuiState::clamp_frozen_rows_for_viewport(6, 5), 5);
+        assert_eq!(TuiState::clamp_frozen_rows_for_viewport(1, 5), 1);
+        assert_eq!(TuiState::clamp_frozen_rows_for_viewport(3, 1), 1);
+    }
+
+    #[test]
+    fn test_clamp_frozen_columns_for_viewport() {
+        assert_eq!(
+            TuiState::clamp_frozen_columns_for_viewport(4, &[4, 4, 4, 4, 4], 14),
+            2
+        );
+        assert_eq!(
+            TuiState::clamp_frozen_columns_for_viewport(1, &[8, 8], 10),
+            0
+        );
     }
 
     #[test]
