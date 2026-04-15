@@ -1405,6 +1405,16 @@ impl TuiState {
         }
 
         frame.render_widget(
+            Paragraph::new(" ".repeat(width as usize)).style(style),
+            Rect {
+                x,
+                y,
+                width,
+                height: 1,
+            },
+        );
+
+        frame.render_widget(
             Paragraph::new(single_line.to_string()).style(style),
             Rect {
                 x,
