@@ -1,0 +1,61 @@
+name: Manual Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Build profile to use
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - debug
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (ubuntu-latest, ${{ inputs.build_mode }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (release)
+        if: inputs.build_mode == 'release'
+        run: cargo build --release
+
+      - name: Build (debug)
+        if: inputs.build_mode == 'debug'
+        run: cargo build
+
+      - name: Set debug binary path
+        shell: bash
+        if: inputs.build_mode == 'debug'
+        run: echo "BINARY_PATH=target/debug/xleak" >> "$GITHUB_ENV"
+
+      - name: Set release binary path
+        if: inputs.build_mode == 'release'
+        shell: bash
+        run: echo "BINARY_PATH=target/release/xleak" >> "$GITHUB_ENV"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xleak-linux-x86_64-${{ inputs.build_mode }}
+          path: ${{ env.BINARY_PATH }}
+          if-no-files-found: error
