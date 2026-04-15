@@ -1202,31 +1202,6 @@ impl TuiState {
         }
     }
 
-    fn clamp_frozen_columns_for_viewport(
-        requested_columns: usize,
-        column_widths: &[usize],
-        viewport_width: usize,
-    ) -> usize {
-        if requested_columns == 0 || column_widths.len() <= 1 || viewport_width == 0 {
-            return 0;
-        }
-
-        let max_candidate = requested_columns.min(column_widths.len().saturating_sub(1));
-        let mut used_width = 0usize;
-        let mut allowed = 0usize;
-
-        for frozen_count in 0..max_candidate {
-            used_width += column_widths[frozen_count] + 1;
-            let next_width = column_widths[frozen_count + 1] + 1;
-            if used_width + next_width > viewport_width {
-                break;
-            }
-            allowed = frozen_count + 1;
-        }
-
-        allowed
-    }
-
     fn freeze_panes_at_cursor(&mut self) {
         if !self.horizontal_scroll_enabled {
             self.horizontal_scroll_enabled = true;
@@ -1241,11 +1216,7 @@ impl TuiState {
         let requested_columns = frozen_columns.min(self.sheet_data.width());
         let applied_rows =
             Self::clamp_frozen_rows_for_viewport(requested_rows, self.last_table_height);
-        let applied_columns = Self::clamp_frozen_columns_for_viewport(
-            requested_columns,
-            &self.column_widths,
-            self.last_viewport_width,
-        );
+        let applied_columns = requested_columns;
 
         self.runtime_frozen_rows = Some(applied_rows);
         self.runtime_frozen_columns = Some(applied_columns);
@@ -2793,18 +2764,6 @@ mod tests {
         assert_eq!(TuiState::clamp_frozen_rows_for_viewport(6, 5), 5);
         assert_eq!(TuiState::clamp_frozen_rows_for_viewport(1, 5), 1);
         assert_eq!(TuiState::clamp_frozen_rows_for_viewport(3, 1), 1);
-    }
-
-    #[test]
-    fn test_clamp_frozen_columns_for_viewport() {
-        assert_eq!(
-            TuiState::clamp_frozen_columns_for_viewport(4, &[4, 4, 4, 4, 4], 14),
-            2
-        );
-        assert_eq!(
-            TuiState::clamp_frozen_columns_for_viewport(1, &[8, 8], 10),
-            0
-        );
     }
 
     #[test]
