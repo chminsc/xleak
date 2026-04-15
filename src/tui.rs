@@ -1,4 +1,4 @@
-use crate::workbook::{CellValue, LazySheetData, SheetData, Workbook};
+use crate::workbook::{CellValue, LazySheetData, SheetData, Workbook, format_cell_for_display};
 use anyhow::{Context, Result};
 use arboard::Clipboard;
 use crossterm::{
@@ -1004,7 +1004,12 @@ impl TuiState {
 
         for row in sample_rows.iter() {
             for (col_idx, cell) in row.iter().enumerate() {
-                let len = cell.to_string().len();
+                let len = format_cell_for_display(
+                    cell,
+                    row,
+                    &self.config.ui.percentage_row_marker_columns,
+                )
+                .len();
                 widths[col_idx] = widths[col_idx].max(len);
             }
         }
@@ -1358,6 +1363,14 @@ impl TuiState {
         style
     }
 
+    fn display_value_for_row_cell(&self, row: &[CellValue], col_idx: usize) -> String {
+        row.get(col_idx)
+            .map(|cell| {
+                format_cell_for_display(cell, row, &self.config.ui.percentage_row_marker_columns)
+            })
+            .unwrap_or_default()
+    }
+
     fn render_overflow_paragraph(
         frame: &mut Frame,
         x: u16,
@@ -1506,7 +1519,7 @@ impl TuiState {
                 let Some(cell) = row.get(col_idx) else {
                     continue;
                 };
-                let text = cell.to_string();
+                let text = self.display_value_for_row_cell(row, col_idx);
                 if text.lines().next().unwrap_or("").chars().count() <= width as usize {
                     continue;
                 }
@@ -1515,7 +1528,7 @@ impl TuiState {
                 for &(next_col_idx, _, next_width) in column_layouts.iter().skip(layout_idx + 1) {
                     let next_text = row
                         .get(next_col_idx)
-                        .map(|next_cell| next_cell.to_string())
+                        .map(|_| self.display_value_for_row_cell(row, next_col_idx))
                         .unwrap_or_default();
                     if !next_text.trim().is_empty() {
                         break;
@@ -1837,7 +1850,7 @@ impl TuiState {
                     .enumerate()
                     .filter(|(col_idx, _)| visible_columns.contains(col_idx))
                     .map(|(col_idx, cell)| {
-                        Cell::from(cell.to_string())
+                        Cell::from(self.display_value_for_row_cell(row, col_idx))
                             .style(self.data_cell_style(&colors, *row_idx, col_idx, cell))
                     })
                     .collect();
@@ -1890,7 +1903,14 @@ impl TuiState {
 
         // Status bar with current cell info
         let (cell, _) = self.sheet_data.get_cell(self.cursor_row, self.cursor_col);
-        let current_cell_value = cell.map(|v| v.to_string()).unwrap_or_default();
+        let current_cell_value = self
+            .sheet_data
+            .get_rows(self.cursor_row, 1)
+            .0
+            .first()
+            .map(|row| self.display_value_for_row_cell(row, self.cursor_col))
+            .or_else(|| cell.map(|v| v.to_string()))
+            .unwrap_or_default();
 
         // Format sheet dimensions with scroll indicator
         let first_visible_col = visible_columns

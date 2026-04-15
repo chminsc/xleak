@@ -275,6 +275,32 @@ impl CellValue {
     }
 }
 
+pub fn row_uses_percentage_display(row: &[CellValue], marker_columns: &[usize]) -> bool {
+    marker_columns.iter().any(|&column_number| {
+        column_number
+            .checked_sub(1)
+            .and_then(|col_idx| row.get(col_idx))
+            .map(|cell| cell.to_string().contains('%'))
+            .unwrap_or(false)
+    })
+}
+
+pub fn format_cell_for_display(
+    cell: &CellValue,
+    row: &[CellValue],
+    marker_columns: &[usize],
+) -> String {
+    if row_uses_percentage_display(row, marker_columns) {
+        match cell {
+            CellValue::Int(i) => return format!("{:.1}%", (*i as f64) * 100.0),
+            CellValue::Float(f) => return format!("{:.1}%", f * 100.0),
+            _ => {}
+        }
+    }
+
+    cell.to_string()
+}
+
 /// Excel Table data
 #[derive(Debug, Clone)]
 pub struct TableData {
@@ -517,6 +543,30 @@ mod tests {
     fn test_cellvalue_display_float() {
         let val = CellValue::Float(1234567.89);
         assert_eq!(val.to_string(), "1,234,567.89");
+    }
+
+    #[test]
+    fn test_row_uses_percentage_display() {
+        let row = vec![
+            CellValue::String("Gross margin %".to_string()),
+            CellValue::Empty,
+            CellValue::Float(0.222),
+        ];
+        assert!(row_uses_percentage_display(&row, &[1, 2]));
+        assert!(!row_uses_percentage_display(&row, &[2]));
+    }
+
+    #[test]
+    fn test_format_cell_for_display_percentage_row() {
+        let row = vec![
+            CellValue::String("Margin".to_string()),
+            CellValue::String("%".to_string()),
+            CellValue::Float(0.222),
+        ];
+        assert_eq!(
+            format_cell_for_display(&row[2], &row, &[1, 2]),
+            "22.2%"
+        );
     }
 
     #[test]

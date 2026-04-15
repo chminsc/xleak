@@ -194,6 +194,7 @@ fn main() -> Result<()> {
                     cli.max_width,
                     cli.wrap,
                     cli.formulas,
+                    &config.ui.percentage_row_marker_columns,
                 )?;
             }
         }
@@ -242,7 +243,9 @@ fn display_table_data(table: &workbook::TableData, max_rows: usize) -> Result<()
         let cells: Vec<Cell> = row
             .iter()
             .map(|cell| {
-                let cell_obj = Cell::new(&cell.to_string());
+                let display_value =
+                    workbook::format_cell_for_display(cell, row, &[]);
+                let cell_obj = Cell::new(&display_value);
                 // Style based on type
                 match cell {
                     workbook::CellValue::Int(_) | workbook::CellValue::Float(_) => {

@@ -60,6 +60,11 @@ frozen_columns = 0
 # Example: [1] makes the first column one character wide
 fixed_width_1_columns = []
 
+# 1-based columns used to detect percentage rows
+# If any of these columns contains '%', numeric cells in that row display as percentages
+# Example: [1, 2] turns 0.222 into 22.2% when column 1 or 2 contains '%'
+percentage_row_marker_columns = []
+
 # =============================================================================
 # KEYBINDINGS
 # =============================================================================

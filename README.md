@@ -303,6 +303,9 @@ frozen_columns = 0
 
 # 1-based column indexes that should render with width 1 in TUI mode
 fixed_width_1_columns = []
+
+# 1-based columns used to detect percentage rows
+percentage_row_marker_columns = []
 ```
 
 **Notes:**
@@ -312,6 +315,7 @@ fixed_width_1_columns = []
 - `frozen_rows` uses Excel-style semantics in TUI mode: `1` freezes the header row, `2` freezes the top two rows
 - `frozen_columns` only affects interactive TUI horizontal scrolling and works with `-i --horizontal-scroll`
 - `fixed_width_1_columns` only affects interactive TUI column sizing and uses 1-based column numbers, so `[1]` means the first column
+- `percentage_row_marker_columns` affects TUI and non-interactive table display: if any of those columns in a row contains `%`, numeric cells in that row show as percentages like `22.2%`
 
 #### Keybindings
 

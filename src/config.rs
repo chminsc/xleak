@@ -37,6 +37,8 @@ pub struct UiConfig {
     pub frozen_columns: usize,
     /// 1-based column indexes that should render with width 1 in TUI mode
     pub fixed_width_1_columns: Vec<usize>,
+    /// 1-based columns that, when containing '%', make the row display numeric values as percentages
+    pub percentage_row_marker_columns: Vec<usize>,
 }
 
 /// Keybindings configuration
@@ -66,6 +68,7 @@ impl Default for UiConfig {
             frozen_rows: 1,
             frozen_columns: 0,
             fixed_width_1_columns: Vec::new(),
+            percentage_row_marker_columns: Vec::new(),
         }
     }
 }
@@ -172,6 +175,9 @@ frozen_columns = 0
 # 1-based column indexes that should render with width 1 in TUI mode
 # Example: [1] makes the first column a single character wide
 fixed_width_1_columns = []
+# 1-based columns that trigger percentage display for the whole row when they contain '%'
+# Example: [1, 2] means if column 1 or 2 contains '%', numeric cells in that row show as 22.2%
+percentage_row_marker_columns = []
 
 [keybindings]
 # Keybinding profile: "default" or "vim"
@@ -355,6 +361,7 @@ mod tests {
         assert_eq!(config.ui.frozen_rows, 1);
         assert_eq!(config.ui.frozen_columns, 0);
         assert!(config.ui.fixed_width_1_columns.is_empty());
+        assert!(config.ui.percentage_row_marker_columns.is_empty());
         assert_eq!(config.keybindings.profile, "default");
     }
 
@@ -406,10 +413,11 @@ mod tests {
 
     #[test]
     fn test_toml_parsing_fixed_width_columns() {
-        let config_str = "[ui]\nfrozen_rows = 2\nfixed_width_1_columns = [1, 3, 7]\n";
+        let config_str = "[ui]\nfrozen_rows = 2\nfixed_width_1_columns = [1, 3, 7]\npercentage_row_marker_columns = [1, 2]\n";
         let config: Config = toml::from_str(config_str).expect("Failed to parse TOML");
         assert_eq!(config.ui.frozen_rows, 2);
         assert_eq!(config.ui.fixed_width_1_columns, vec![1, 3, 7]);
+        assert_eq!(config.ui.percentage_row_marker_columns, vec![1, 2]);
     }
 
     // =========================================================================

@@ -1,4 +1,4 @@
-use crate::workbook::{CellValue, SheetData};
+use crate::workbook::{CellValue, SheetData, format_cell_for_display};
 use anyhow::Result;
 use prettytable::{Cell, Row, Table, format};
 
@@ -39,6 +39,7 @@ pub fn display_table(
     max_width: usize,
     wrap: bool,
     show_formulas: bool,
+    percentage_row_marker_columns: &[usize],
 ) -> Result<()> {
     // Print header info
     println!("\n╔═════════════════════════════════════════════════╗");
@@ -94,9 +95,9 @@ pub fn display_table(
                         .and_then(|formula_row| formula_row.get(col_idx))
                         .and_then(|f| f.as_ref())
                         .cloned()
-                        .unwrap_or_else(|| cell.to_string())
+                        .unwrap_or_else(|| format_cell_for_display(cell, row, percentage_row_marker_columns))
                 } else {
-                    cell.to_string()
+                    format_cell_for_display(cell, row, percentage_row_marker_columns)
                 };
 
                 let formatted = format_cell_value(&value, max_width, wrap);
