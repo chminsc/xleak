@@ -51,6 +51,11 @@ column_width = 30
 # Example: set to 3 to keep columns A-C fixed while scrolling right with -i --horizontal-scroll
 frozen_columns = 0
 
+# 1-based column indexes that should render with width 1 in TUI mode
+# Useful when a frozen helper/outline column should stay very narrow, like in Excel
+# Example: [1] makes the first column one character wide
+fixed_width_1_columns = []
+
 # =============================================================================
 # KEYBINDINGS
 # =============================================================================
@@ -162,6 +167,7 @@ profile = "default"
 # max_rows = 100
 # column_width = 40
 # frozen_columns = 3
+# fixed_width_1_columns = [1]
 #
 # [keybindings]
 # profile = "default"

@@ -991,7 +991,19 @@ impl TuiState {
         }
 
         // Apply constraints: min 3 chars, max 30 chars
-        widths.iter().map(|&w| w.clamp(3, 30)).collect()
+        let mut widths: Vec<usize> = widths.iter().map(|&w| w.clamp(3, 30)).collect();
+        Self::apply_fixed_width_1_overrides(&mut widths, &self.config.ui.fixed_width_1_columns);
+        widths
+    }
+
+    fn apply_fixed_width_1_overrides(widths: &mut [usize], fixed_width_1_columns: &[usize]) {
+        for &column_number in fixed_width_1_columns {
+            if let Some(col_idx) = column_number.checked_sub(1)
+                && let Some(width) = widths.get_mut(col_idx)
+            {
+                *width = 1;
+            }
+        }
     }
 
     fn calculate_visible_columns(
@@ -1151,10 +1163,29 @@ impl TuiState {
         action: &str,
     ) -> bool {
         if let Some((expected_code, expected_mods)) = self.config.get_keybinding(action) {
-            code == expected_code && modifiers == expected_mods
+            Self::key_event_matches_binding(code, modifiers, expected_code, expected_mods)
         } else {
             false
         }
+    }
+
+    fn key_event_matches_binding(
+        actual_code: KeyCode,
+        actual_mods: KeyModifiers,
+        expected_code: KeyCode,
+        expected_mods: KeyModifiers,
+    ) -> bool {
+        if actual_code == expected_code && actual_mods == expected_mods {
+            return true;
+        }
+
+        // Some terminals report shifted printable characters as the final char
+        // without the SHIFT modifier. Accept both representations.
+        matches!(
+            (actual_code, actual_mods, expected_code, expected_mods),
+            (KeyCode::Char(actual), KeyModifiers::NONE, KeyCode::Char(expected), KeyModifiers::SHIFT)
+                if actual == expected
+        )
     }
 
     fn handle_event(&mut self, event: Event) {
@@ -2300,5 +2331,38 @@ mod tests {
     fn test_calculate_visible_columns_with_frozen_columns() {
         let visible = TuiState::calculate_visible_columns(&[4, 4, 4, 4, 4], 14, 2, 1, true);
         assert_eq!(visible, vec![0, 1, 3]);
+    }
+
+    #[test]
+    fn test_apply_fixed_width_1_overrides() {
+        let mut widths = vec![8, 12, 6];
+        TuiState::apply_fixed_width_1_overrides(&mut widths, &[1, 3, 99, 0]);
+        assert_eq!(widths, vec![1, 12, 1]);
+    }
+
+    #[test]
+    fn test_key_event_matches_binding_exact() {
+        assert!(TuiState::key_event_matches_binding(
+            KeyCode::Char('?'),
+            KeyModifiers::SHIFT,
+            KeyCode::Char('?'),
+            KeyModifiers::SHIFT
+        ));
+    }
+
+    #[test]
+    fn test_key_event_matches_binding_shifted_char_without_modifier() {
+        assert!(TuiState::key_event_matches_binding(
+            KeyCode::Char('?'),
+            KeyModifiers::NONE,
+            KeyCode::Char('?'),
+            KeyModifiers::SHIFT
+        ));
+        assert!(TuiState::key_event_matches_binding(
+            KeyCode::Char('$'),
+            KeyModifiers::NONE,
+            KeyCode::Char('$'),
+            KeyModifiers::SHIFT
+        ));
     }
 }

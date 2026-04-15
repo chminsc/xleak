@@ -252,6 +252,7 @@ xleak --config /path/to/config.toml file.xlsx -i
    max_rows = 50
    column_width = 30
    frozen_columns = 3
+   fixed_width_1_columns = [1]
 
    [keybindings]
    profile = "vim"
@@ -295,6 +296,9 @@ column_width = 30
 
 # Number of leading columns to keep visible during horizontal scrolling in TUI mode
 frozen_columns = 0
+
+# 1-based column indexes that should render with width 1 in TUI mode
+fixed_width_1_columns = []
 ```
 
 **Notes:**
@@ -302,6 +306,7 @@ frozen_columns = 0
 - Interactive TUI mode (`-i`) always shows all rows with lazy loading for large files
 - `column_width` applies to both modes and can be overridden with `-w` flag
 - `frozen_columns` only affects interactive TUI horizontal scrolling and works with `-i --horizontal-scroll`
+- `fixed_width_1_columns` only affects interactive TUI column sizing and uses 1-based column numbers, so `[1]` means the first column
 
 #### Keybindings
 
@@ -452,6 +457,8 @@ default = "GitHub Dark"
 [ui]
 max_rows = 100
 column_width = 40
+frozen_columns = 3
+fixed_width_1_columns = [1]
 
 [keybindings]
 profile = "default"
