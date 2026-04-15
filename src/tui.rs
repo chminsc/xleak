@@ -1405,16 +1405,6 @@ impl TuiState {
         }
 
         frame.render_widget(
-            Paragraph::new(" ".repeat(width as usize)).style(style),
-            Rect {
-                x,
-                y,
-                width,
-                height: 1,
-            },
-        );
-
-        frame.render_widget(
             Paragraph::new(single_line.to_string()).style(style),
             Rect {
                 x,
@@ -1423,6 +1413,33 @@ impl TuiState {
                 height: 1,
             },
         );
+    }
+
+    fn render_overflow_background_segments(
+        frame: &mut Frame,
+        y: u16,
+        segments: &[(u16, u16, Style)],
+    ) {
+        for &(x, width, style) in segments {
+            if width == 0 {
+                continue;
+            }
+
+            frame.render_widget(
+                Paragraph::new(" ".repeat(width as usize)).style(style),
+                Rect {
+                    x,
+                    y,
+                    width,
+                    height: 1,
+                },
+            );
+        }
+    }
+
+    fn style_without_background(mut style: Style) -> Style {
+        style.bg = None;
+        style
     }
 
     fn render_fixed_width_overflow(
@@ -1478,13 +1495,28 @@ impl TuiState {
             }
 
             if overflow_width > width {
+                let background_segments: Vec<(u16, u16, Style)> = column_layouts
+                    .iter()
+                    .skip(layout_idx)
+                    .scan(width, |remaining_width, &(segment_col_idx, segment_x, segment_width)| {
+                        if *remaining_width == 0 {
+                            return None;
+                        }
+
+                        let actual_width = (*remaining_width).min(segment_width);
+                        *remaining_width = (*remaining_width).saturating_sub(segment_width + 1);
+                        Some((segment_x, actual_width, self.header_style(colors, segment_col_idx)))
+                    })
+                    .collect();
+
+                Self::render_overflow_background_segments(frame, inner_y, &background_segments);
                 Self::render_overflow_paragraph(
                     frame,
                     x,
                     inner_y,
                     overflow_width.min(inner_right.saturating_sub(x)),
                     text,
-                    self.header_style(colors, col_idx),
+                    Self::style_without_background(self.header_style(colors, col_idx)),
                 );
             }
         }
@@ -1521,13 +1553,45 @@ impl TuiState {
                 }
 
                 if overflow_width > width {
+                    let empty_cell = CellValue::Empty;
+                    let background_segments: Vec<(u16, u16, Style)> = column_layouts
+                        .iter()
+                        .skip(layout_idx)
+                        .scan(width, |remaining_width, &(segment_col_idx, segment_x, segment_width)| {
+                            if *remaining_width == 0 {
+                                return None;
+                            }
+
+                            let actual_width = (*remaining_width).min(segment_width);
+                            *remaining_width = (*remaining_width).saturating_sub(segment_width + 1);
+                            let segment_cell =
+                                row.get(segment_col_idx).unwrap_or(&empty_cell);
+                            Some((
+                                segment_x,
+                                actual_width,
+                                self.data_cell_style(
+                                    colors,
+                                    *row_idx,
+                                    segment_col_idx,
+                                    segment_cell,
+                                ),
+                            ))
+                        })
+                        .collect();
+
+                    Self::render_overflow_background_segments(frame, row_y, &background_segments);
                     Self::render_overflow_paragraph(
                         frame,
                         x,
                         row_y,
                         overflow_width.min(inner_right.saturating_sub(x)),
                         &text,
-                        self.data_cell_style(colors, *row_idx, col_idx, cell),
+                        Self::style_without_background(self.data_cell_style(
+                            colors,
+                            *row_idx,
+                            col_idx,
+                            cell,
+                        )),
                     );
                 }
             }
