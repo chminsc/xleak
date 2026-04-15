@@ -1155,6 +1155,210 @@ impl TuiState {
         )
     }
 
+    fn is_fixed_width_1_column(&self, col_idx: usize) -> bool {
+        self.config
+            .ui
+            .fixed_width_1_columns
+            .iter()
+            .any(|&column_number| column_number.checked_sub(1) == Some(col_idx))
+    }
+
+    fn header_style(&self, colors: &ColorScheme, col_idx: usize) -> Style {
+        let mut style = Style::default()
+            .fg(colors.header_fg)
+            .add_modifier(Modifier::BOLD);
+
+        if let Some(bg) = colors.header_bg {
+            style = style.bg(bg);
+        }
+
+        if col_idx == self.cursor_col {
+            style = style.fg(colors.current_col_fg);
+        }
+
+        style
+    }
+
+    fn data_cell_style(
+        &self,
+        colors: &ColorScheme,
+        row_idx: usize,
+        col_idx: usize,
+        cell: &CellValue,
+    ) -> Style {
+        let mut style = Style::default().fg(colors.cell_color(cell));
+
+        let is_alternating_row = row_idx % 2 == 1;
+        if is_alternating_row && let Some(alt_bg) = colors.alternating_row_bg {
+            style = style.bg(alt_bg);
+        }
+
+        let is_search_match = self.search_matches.contains(&(row_idx, col_idx));
+        let is_current_match = self
+            .current_match_index
+            .and_then(|idx| self.search_matches.get(idx))
+            .map(|&pos| pos == (row_idx, col_idx))
+            .unwrap_or(false);
+
+        if is_current_match {
+            style = style
+                .bg(colors.current_search_bg)
+                .fg(colors.current_search_fg)
+                .add_modifier(Modifier::BOLD);
+        } else if row_idx == self.cursor_row && col_idx == self.cursor_col {
+            style = style
+                .bg(colors.current_cell_bg)
+                .fg(colors.current_cell_fg)
+                .add_modifier(Modifier::BOLD);
+        } else if is_search_match {
+            style = style.bg(colors.search_match_bg).fg(colors.search_match_fg);
+        } else if row_idx == self.cursor_row {
+            style = style.bg(colors.current_row_bg);
+        } else if col_idx == self.cursor_col {
+            style = style.fg(colors.current_col_fg);
+        }
+
+        style
+    }
+
+    fn render_overflow_paragraph(
+        frame: &mut Frame,
+        x: u16,
+        y: u16,
+        width: u16,
+        text: &str,
+        style: Style,
+    ) {
+        if width == 0 || text.is_empty() {
+            return;
+        }
+
+        let single_line = text.lines().next().unwrap_or(text);
+        if single_line.is_empty() {
+            return;
+        }
+
+        frame.render_widget(
+            Paragraph::new(single_line.to_string()).style(style),
+            Rect {
+                x,
+                y,
+                width,
+                height: 1,
+            },
+        );
+    }
+
+    fn render_fixed_width_overflow(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        visible_columns: &[usize],
+        headers: &[String],
+        visible_rows: &[Vec<CellValue>],
+        colors: &ColorScheme,
+    ) {
+        if !self.horizontal_scroll_enabled || self.config.ui.fixed_width_1_columns.is_empty() {
+            return;
+        }
+
+        let inner_x = area.x.saturating_add(1);
+        let inner_y = area.y.saturating_add(1);
+        let inner_width = area.width.saturating_sub(2);
+        if inner_width == 0 {
+            return;
+        }
+
+        let mut column_layouts = Vec::with_capacity(visible_columns.len());
+        let mut x = inner_x;
+        let inner_right = inner_x.saturating_add(inner_width);
+
+        for &col_idx in visible_columns {
+            let width = self.column_widths.get(col_idx).copied().unwrap_or(0) as u16;
+            if x >= inner_right {
+                break;
+            }
+            column_layouts.push((col_idx, x, width));
+            x = x.saturating_add(width.saturating_add(1));
+        }
+
+        for (layout_idx, &(col_idx, x, width)) in column_layouts.iter().enumerate() {
+            if !self.is_fixed_width_1_column(col_idx) || width == 0 {
+                continue;
+            }
+
+            let text = headers.get(col_idx).map(String::as_str).unwrap_or("");
+            if text.chars().count() <= width as usize {
+                continue;
+            }
+
+            let mut overflow_width = width;
+            for &(next_col_idx, _, next_width) in column_layouts.iter().skip(layout_idx + 1) {
+                let next_text = headers.get(next_col_idx).map(String::as_str).unwrap_or("");
+                if !next_text.trim().is_empty() {
+                    break;
+                }
+                overflow_width = overflow_width.saturating_add(next_width.saturating_add(1));
+            }
+
+            if overflow_width > width {
+                Self::render_overflow_paragraph(
+                    frame,
+                    x,
+                    inner_y,
+                    overflow_width.min(inner_right.saturating_sub(x)),
+                    text,
+                    self.header_style(colors, col_idx),
+                );
+            }
+        }
+
+        for (visible_row_idx, row) in visible_rows.iter().enumerate() {
+            let row_y = inner_y.saturating_add(1 + visible_row_idx as u16);
+            if row_y >= area.y.saturating_add(area.height).saturating_sub(1) {
+                break;
+            }
+
+            let row_idx = self.scroll_offset + visible_row_idx;
+            for (layout_idx, &(col_idx, x, width)) in column_layouts.iter().enumerate() {
+                if !self.is_fixed_width_1_column(col_idx) || width == 0 {
+                    continue;
+                }
+
+                let Some(cell) = row.get(col_idx) else {
+                    continue;
+                };
+                let text = cell.to_string();
+                if text.lines().next().unwrap_or("").chars().count() <= width as usize {
+                    continue;
+                }
+
+                let mut overflow_width = width;
+                for &(next_col_idx, _, next_width) in column_layouts.iter().skip(layout_idx + 1) {
+                    let next_text = row
+                        .get(next_col_idx)
+                        .map(|next_cell| next_cell.to_string())
+                        .unwrap_or_default();
+                    if !next_text.trim().is_empty() {
+                        break;
+                    }
+                    overflow_width = overflow_width.saturating_add(next_width.saturating_add(1));
+                }
+
+                if overflow_width > width {
+                    Self::render_overflow_paragraph(
+                        frame,
+                        x,
+                        row_y,
+                        overflow_width.min(inner_right.saturating_sub(x)),
+                        &text,
+                        self.data_cell_style(colors, row_idx, col_idx, cell),
+                    );
+                }
+            }
+        }
+    }
+
     /// Check if a key press matches a configured action
     fn key_matches(
         &self,
@@ -1379,22 +1583,7 @@ impl TuiState {
             .iter()
             .enumerate()
             .filter(|(col_idx, _)| visible_columns.contains(col_idx))
-            .map(|(col_idx, h)| {
-                let mut style = Style::default()
-                    .fg(colors.header_fg)
-                    .add_modifier(Modifier::BOLD);
-
-                if let Some(bg) = colors.header_bg {
-                    style = style.bg(bg);
-                }
-
-                // Highlight current column header
-                if col_idx == self.cursor_col {
-                    style = style.fg(colors.current_col_fg);
-                }
-
-                Cell::from(h.as_str()).style(style)
-            })
+            .map(|(col_idx, h)| Cell::from(h.as_str()).style(self.header_style(&colors, col_idx)))
             .collect();
 
         let header = Row::new(header_cells).height(1);
@@ -1413,50 +1602,8 @@ impl TuiState {
                     .enumerate()
                     .filter(|(col_idx, _)| visible_columns.contains(col_idx))
                     .map(|(col_idx, cell)| {
-                        // Start with cell type color
-                        let mut style = Style::default().fg(colors.cell_color(cell));
-
-                        // Add alternating row background (only if not the current row)
-                        let is_alternating_row = row_idx % 2 == 1;
-                        if is_alternating_row && let Some(alt_bg) = colors.alternating_row_bg {
-                            style = style.bg(alt_bg);
-                        }
-
-                        // Check if this cell is a search match
-                        let is_search_match = self.search_matches.contains(&(row_idx, col_idx));
-                        let is_current_match = self
-                            .current_match_index
-                            .and_then(|idx| self.search_matches.get(idx))
-                            .map(|&pos| pos == (row_idx, col_idx))
-                            .unwrap_or(false);
-
-                        // Highlight current search match (highest priority)
-                        if is_current_match {
-                            style = style
-                                .bg(colors.current_search_bg)
-                                .fg(colors.current_search_fg)
-                                .add_modifier(Modifier::BOLD);
-                        }
-                        // Highlight current cell
-                        else if row_idx == self.cursor_row && col_idx == self.cursor_col {
-                            style = style
-                                .bg(colors.current_cell_bg)
-                                .fg(colors.current_cell_fg)
-                                .add_modifier(Modifier::BOLD);
-                        }
-                        // Highlight other search matches
-                        else if is_search_match {
-                            style = style.bg(colors.search_match_bg).fg(colors.search_match_fg);
-                        }
-                        // Highlight current row
-                        else if row_idx == self.cursor_row {
-                            style = style.bg(colors.current_row_bg);
-                        }
-                        // Highlight current column
-                        else if col_idx == self.cursor_col {
-                            style = style.fg(colors.current_col_fg);
-                        }
-                        Cell::from(cell.to_string()).style(style)
+                        Cell::from(cell.to_string())
+                            .style(self.data_cell_style(&colors, row_idx, col_idx, cell))
                     })
                     .collect();
                 Row::new(cells).height(1)
@@ -1498,6 +1645,14 @@ impl TuiState {
         );
 
         frame.render_widget(table, chunks[0]);
+        self.render_fixed_width_overflow(
+            frame,
+            chunks[0],
+            &visible_columns,
+            &headers,
+            &visible_rows,
+            &colors,
+        );
 
         // Status bar with current cell info
         let (cell, _) = self.sheet_data.get_cell(self.cursor_row, self.cursor_col);
