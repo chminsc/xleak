@@ -1009,8 +1009,8 @@ impl TuiState {
         let mut visible_columns = Vec::new();
         let mut used_width = 0usize;
 
-        for col_idx in 0..frozen_columns {
-            used_width += column_widths[col_idx] + 1;
+        for (col_idx, width) in column_widths.iter().enumerate().take(frozen_columns) {
+            used_width += *width + 1;
             visible_columns.push(col_idx);
             if used_width > viewport_width {
                 return visible_columns;
@@ -1021,8 +1021,8 @@ impl TuiState {
             .saturating_add(horizontal_scroll_offset)
             .min(column_widths.len());
 
-        for col_idx in scroll_start..column_widths.len() {
-            used_width += column_widths[col_idx] + 1;
+        for (col_idx, width) in column_widths.iter().enumerate().skip(scroll_start) {
+            used_width += *width + 1;
             visible_columns.push(col_idx);
             if used_width > viewport_width {
                 break;
@@ -1057,8 +1057,7 @@ impl TuiState {
         let visible_scroll_end = visible_columns
             .iter()
             .copied()
-            .filter(|&col_idx| col_idx >= frozen_columns)
-            .next_back()
+            .rfind(|&col_idx| col_idx >= frozen_columns)
             .map(|last_col| last_col + 1)
             .unwrap_or(scroll_start);
 
