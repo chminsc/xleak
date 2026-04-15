@@ -1903,14 +1903,17 @@ impl TuiState {
 
         // Status bar with current cell info
         let (cell, _) = self.sheet_data.get_cell(self.cursor_row, self.cursor_col);
-        let current_cell_value = self
-            .sheet_data
-            .get_rows(self.cursor_row, 1)
-            .0
-            .first()
-            .map(|row| self.display_value_for_row_cell(row, self.cursor_col))
-            .or_else(|| cell.map(|v| v.to_string()))
-            .unwrap_or_default();
+        let percentage_row_marker_columns = self.config.ui.percentage_row_marker_columns.clone();
+        let cursor_col = self.cursor_col;
+        let current_cell_value = {
+            let (rows, _) = self.sheet_data.get_rows(self.cursor_row, 1);
+            rows.first()
+                .and_then(|row| row.get(cursor_col).map(|cell| {
+                    format_cell_for_display(cell, row, &percentage_row_marker_columns)
+                }))
+        }
+        .or_else(|| cell.map(|v| v.to_string()))
+        .unwrap_or_default();
 
         // Format sheet dimensions with scroll indicator
         let first_visible_col = visible_columns
