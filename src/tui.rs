@@ -1574,6 +1574,8 @@ impl TuiState {
 
         // Clone headers to avoid borrow issues
         let headers = self.sheet_data.headers().to_vec();
+        let sheet_width = self.sheet_data.width();
+        let current_sheet_name = self.current_sheet_name().to_string();
 
         // Get theme colors
         let colors = self.current_theme.colors();
@@ -1589,8 +1591,10 @@ impl TuiState {
         let header = Row::new(header_cells).height(1);
 
         // Get visible rows from data source (handles lazy loading if needed)
-        let (visible_rows, _visible_formulas) =
-            self.sheet_data.get_rows(visible_start, table_height);
+        let visible_rows = {
+            let (rows, _visible_formulas) = self.sheet_data.get_rows(visible_start, table_height);
+            rows.to_vec()
+        };
 
         let data_rows: Vec<Row> = visible_rows
             .iter()
@@ -1619,7 +1623,6 @@ impl TuiState {
                 .collect()
         } else {
             // Use percentage-based widths (current behavior)
-            let sheet_width = self.sheet_data.width();
             headers
                 .iter()
                 .map(|_| Constraint::Percentage((100 / sheet_width.max(1)) as u16))
@@ -1629,12 +1632,12 @@ impl TuiState {
         let table_title = if self.sheet_names.len() > 1 {
             format!(
                 " {} (Sheet {}/{}) ",
-                self.current_sheet_name(),
+                current_sheet_name,
                 self.current_sheet_index + 1,
                 self.sheet_names.len()
             )
         } else {
-            format!(" {} ", self.current_sheet_name())
+            format!(" {} ", current_sheet_name)
         };
 
         let table = Table::new(data_rows, col_widths).header(header).block(
