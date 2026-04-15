@@ -499,6 +499,8 @@ pub struct TuiState {
     current_theme: Theme, // Current color theme
     // Config state
     config: crate::config::Config, // User configuration
+    runtime_frozen_rows: Option<usize>,
+    runtime_frozen_columns: Option<usize>,
 }
 
 impl TuiState {
@@ -562,6 +564,8 @@ impl TuiState {
             progress: None,
             current_theme: Self::parse_theme_name(&config.theme.default),
             config: config.clone(),
+            runtime_frozen_rows: None,
+            runtime_frozen_columns: None,
         };
 
         // Calculate column widths if horizontal scrolling is enabled
@@ -644,6 +648,9 @@ impl TuiState {
             self.column_widths = self.calculate_column_widths();
         }
 
+        self.runtime_frozen_rows = None;
+        self.runtime_frozen_columns = None;
+
         Ok(())
     }
 
@@ -659,9 +666,8 @@ impl TuiState {
             return 0;
         }
 
-        self.config
-            .ui
-            .frozen_columns
+        self.runtime_frozen_columns
+            .unwrap_or(self.config.ui.frozen_columns)
             .min(self.sheet_data.width())
             .min(self.column_widths.len())
     }
@@ -1173,6 +1179,35 @@ impl TuiState {
         // Horizontal scroll will be updated in render to show the last column
     }
 
+    fn freeze_panes_values_from_cursor(cursor_row: usize, cursor_col: usize) -> (usize, usize) {
+        (cursor_row.max(1), cursor_col)
+    }
+
+    fn freeze_panes_at_cursor(&mut self) {
+        if !self.horizontal_scroll_enabled {
+            self.horizontal_scroll_enabled = true;
+            self.column_widths = self.calculate_column_widths();
+        } else if self.column_widths.is_empty() {
+            self.column_widths = self.calculate_column_widths();
+        }
+
+        let (frozen_rows, frozen_columns) =
+            Self::freeze_panes_values_from_cursor(self.cursor_row, self.cursor_col);
+        self.runtime_frozen_rows = Some(frozen_rows.min(self.sheet_data.height().saturating_add(1)));
+        self.runtime_frozen_columns = Some(frozen_columns.min(self.sheet_data.width()));
+        self.scroll_offset = 0;
+        self.horizontal_scroll_offset = 0;
+        self.copy_feedback = Some((
+            format!(
+                "Frozen panes at {} (rows: {}, cols: {})",
+                self.current_cell_address(),
+                self.frozen_rows(),
+                self.frozen_columns()
+            ),
+            Instant::now(),
+        ));
+    }
+
     fn page_up(&mut self, page_size: usize) {
         self.cursor_row = self.cursor_row.saturating_sub(page_size);
     }
@@ -1210,9 +1245,8 @@ impl TuiState {
     }
 
     fn frozen_rows(&self) -> usize {
-        self.config
-            .ui
-            .frozen_rows
+        self.runtime_frozen_rows
+            .unwrap_or(self.config.ui.frozen_rows)
             .max(1)
             .min(self.sheet_data.height().saturating_add(1))
     }
@@ -1565,6 +1599,8 @@ impl TuiState {
                 self.copy_current_cell();
             } else if self.key_matches(code, modifiers, "copy_row") {
                 self.copy_current_row();
+            } else if self.key_matches(code, modifiers, "freezepane") {
+                self.freeze_panes_at_cursor();
             } else if self.key_matches(code, modifiers, "jump") {
                 self.enter_jump_mode();
             } else if self.key_matches(code, modifiers, "show_cell_detail") {
@@ -2009,6 +2045,10 @@ impl TuiState {
                 Span::raw("Cycle through color themes"),
             ]),
             Line::from(vec![
+                Span::styled("  Alt+f*           ", Style::default().fg(Color::Green)),
+                Span::raw("Freeze panes above/left of current cell (*if configured)"),
+            ]),
+            Line::from(vec![
                 Span::styled("  ?                ", Style::default().fg(Color::Green)),
                 Span::raw("Toggle this help screen"),
             ]),
@@ -2093,6 +2133,8 @@ impl TuiState {
             Line::from(""),
             Line::from("  Supports VIM-style navigation (hjkl, gg, G, 0, $)"),
             Line::from("  Custom keybindings per action"),
+            Line::from("  Example: [keybindings.custom] freezepane = \"Alt+f\""),
+            Line::from("  On macOS, set Option to act as Meta/Alt in your terminal if needed"),
             Line::from("  Default theme selection"),
             Line::from(""),
             Line::from("  See config.toml.example for all options"),
@@ -2590,6 +2632,12 @@ mod tests {
         let mut widths = vec![8, 12, 6];
         TuiState::apply_fixed_width_1_overrides(&mut widths, &[1, 3, 99, 0]);
         assert_eq!(widths, vec![1, 12, 1]);
+    }
+
+    #[test]
+    fn test_freeze_panes_values_from_cursor() {
+        assert_eq!(TuiState::freeze_panes_values_from_cursor(0, 0), (1, 0));
+        assert_eq!(TuiState::freeze_panes_values_from_cursor(6, 4), (6, 4));
     }
 
     #[test]

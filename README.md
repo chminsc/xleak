@@ -401,6 +401,9 @@ search = "?"
 # Use 'T' (Shift+t) to toggle theme
 theme_toggle = "T"
 
+# Use Alt+F to freeze panes at the current cell
+freezepane = "Alt+f"
+
 # Use Ctrl+J to jump to cell
 jump = "Ctrl+j"
 ```
@@ -417,6 +420,7 @@ jump = "Ctrl+j"
 | `prev_match` | `N` | `N` | Previous result |
 | `copy_cell` | `c` | `y` | Copy cell |
 | `copy_row` | `C` | `Y` | Copy row |
+| `freezepane` | custom only | custom only | Freeze panes at current cell |
 | `jump` | `Ctrl+g` | `Ctrl+g` | Jump to cell |
 | `show_cell_detail` | `Enter` | `Enter` | Show details |
 | `next_sheet` | `Tab` | `Tab` | Next sheet |
@@ -436,6 +440,7 @@ jump = "Ctrl+j"
 - Single key: `"q"`, `"/"`, `"Enter"`
 - With modifier: `"Ctrl+g"`, `"Shift+Tab"`, `"Alt+s"`
 - Special keys: `"Enter"`, `"Esc"`, `"Tab"`, `"Home"`, `"End"`, `"PageUp"`, `"PageDown"`, `"Up"`, `"Down"`, `"Left"`, `"Right"`
+- On macOS, `Alt+...` bindings usually require your terminal's Option key to send Meta/Alt
 
 ### Example Configurations
 
@@ -474,6 +479,7 @@ quit = "x"
 search = "s"
 copy_cell = "Ctrl+c"
 copy_row = "Ctrl+Shift+c"
+freezepane = "Alt+f"
 ```
 
 **Full reference:** See `config.toml.example` for all options with detailed comments.

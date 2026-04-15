@@ -110,6 +110,8 @@ profile = "default"
 # -----------------------------------------------------------------------------
 # copy_cell = "c"         # Copy current cell to clipboard
 # copy_row = "C"          # Copy entire row (Shift+c)
+# freezepane = "Alt+f"    # Freeze panes above/left of current cell
+#                        # macOS: set Option to send Alt/Meta if needed
 
 # -----------------------------------------------------------------------------
 # Cell Actions

@@ -188,6 +188,7 @@ profile = "default"
 # prev_match = "N"
 # copy_cell = "c"
 # copy_row = "C"
+# freezepane = "Alt+f"
 # jump = "Ctrl+g"
 # show_cell_detail = "Enter"
 
@@ -202,6 +203,8 @@ profile = "default"
 # jump_to_bottom = "G"
 # jump_to_row_start = "0"
 # jump_to_row_end = "$"
+#
+# On macOS terminals, you may need to configure Option to send Alt/Meta
 "#
         .to_string()
     }
@@ -462,6 +465,7 @@ profile = "default"
 [keybindings.custom]
 quit = "x"
 search = "?"
+freezepane = "Alt+f"
 "#;
         let config: Config = toml::from_str(config_str).unwrap();
 
@@ -473,6 +477,10 @@ search = "?"
         assert_eq!(
             config.get_keybinding("search"),
             Some((KeyCode::Char('?'), KeyModifiers::empty()))
+        );
+        assert_eq!(
+            config.get_keybinding("freezepane"),
+            Some((KeyCode::Char('f'), KeyModifiers::ALT))
         );
 
         // Non-overridden should use profile default
