@@ -31,6 +31,8 @@ pub struct UiConfig {
     pub max_rows: usize,
     /// Default maximum column width
     pub column_width: usize,
+    /// Number of leading columns to keep visible during horizontal scrolling
+    pub frozen_columns: usize,
 }
 
 /// Keybindings configuration
@@ -57,6 +59,7 @@ impl Default for UiConfig {
         Self {
             max_rows: 50,
             column_width: 30,
+            frozen_columns: 0,
         }
     }
 }
@@ -155,6 +158,8 @@ default = "Default"
 max_rows = 50
 # Default maximum column width in characters
 column_width = 30
+# Number of leading columns to keep visible during horizontal scrolling in TUI mode
+frozen_columns = 0
 
 [keybindings]
 # Keybinding profile: "default" or "vim"
@@ -332,6 +337,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.theme.default, "Default");
         assert_eq!(config.ui.max_rows, 50);
+        assert_eq!(config.ui.frozen_columns, 0);
         assert_eq!(config.keybindings.profile, "default");
     }
 
@@ -353,28 +359,31 @@ mod tests {
 
     #[test]
     fn test_toml_parsing_unix_line_endings() {
-        let config_str = "[theme]\ndefault = \"Dracula\"\n\n[ui]\nmax_rows = 100\n\n[keybindings]\nprofile = \"vim\"";
+        let config_str = "[theme]\ndefault = \"Dracula\"\n\n[ui]\nmax_rows = 100\nfrozen_columns = 3\n\n[keybindings]\nprofile = \"vim\"";
         let config: Config = toml::from_str(config_str).expect("Failed to parse TOML");
         assert_eq!(config.theme.default, "Dracula");
         assert_eq!(config.ui.max_rows, 100);
+        assert_eq!(config.ui.frozen_columns, 3);
         assert_eq!(config.keybindings.profile, "vim");
     }
 
     #[test]
     fn test_toml_parsing_windows_line_endings() {
-        let config_str = "[theme]\r\ndefault = \"Nord\"\r\n\r\n[ui]\r\nmax_rows = 200\r\n\r\n[keybindings]\r\nprofile = \"default\"";
+        let config_str = "[theme]\r\ndefault = \"Nord\"\r\n\r\n[ui]\r\nmax_rows = 200\r\nfrozen_columns = 2\r\n\r\n[keybindings]\r\nprofile = \"default\"";
         let config: Config = toml::from_str(config_str).expect("Failed to parse TOML");
         assert_eq!(config.theme.default, "Nord");
         assert_eq!(config.ui.max_rows, 200);
+        assert_eq!(config.ui.frozen_columns, 2);
         assert_eq!(config.keybindings.profile, "default");
     }
 
     #[test]
     fn test_toml_parsing_mixed_line_endings() {
-        let config_str = "[theme]\r\ndefault = \"GitHub Dark\"\n\n[ui]\r\nmax_rows = 75\n[keybindings]\r\nprofile = \"vim\"";
+        let config_str = "[theme]\r\ndefault = \"GitHub Dark\"\n\n[ui]\r\nmax_rows = 75\nfrozen_columns = 1\n[keybindings]\r\nprofile = \"vim\"";
         let config: Config = toml::from_str(config_str).expect("Failed to parse TOML");
         assert_eq!(config.theme.default, "GitHub Dark");
         assert_eq!(config.ui.max_rows, 75);
+        assert_eq!(config.ui.frozen_columns, 1);
         assert_eq!(config.keybindings.profile, "vim");
     }
 

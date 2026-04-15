@@ -654,6 +654,18 @@ impl TuiState {
         self.horizontal_scroll_offset = 0;
     }
 
+    fn frozen_columns(&self) -> usize {
+        if !self.horizontal_scroll_enabled {
+            return 0;
+        }
+
+        self.config
+            .ui
+            .frozen_columns
+            .min(self.sheet_data.width())
+            .min(self.column_widths.len())
+    }
+
     /// Perform case-insensitive search across all cells
     fn perform_search(&mut self) {
         self.search_matches.clear();
@@ -982,41 +994,97 @@ impl TuiState {
         widths.iter().map(|&w| w.clamp(3, 30)).collect()
     }
 
+    fn calculate_visible_columns(
+        column_widths: &[usize],
+        viewport_width: usize,
+        frozen_columns: usize,
+        horizontal_scroll_offset: usize,
+        horizontal_scroll_enabled: bool,
+    ) -> Vec<usize> {
+        if !horizontal_scroll_enabled {
+            return (0..column_widths.len()).collect();
+        }
+
+        let frozen_columns = frozen_columns.min(column_widths.len());
+        let mut visible_columns = Vec::new();
+        let mut used_width = 0usize;
+
+        for col_idx in 0..frozen_columns {
+            used_width += column_widths[col_idx] + 1;
+            visible_columns.push(col_idx);
+            if used_width > viewport_width {
+                return visible_columns;
+            }
+        }
+
+        let scroll_start = frozen_columns
+            .saturating_add(horizontal_scroll_offset)
+            .min(column_widths.len());
+
+        for col_idx in scroll_start..column_widths.len() {
+            used_width += column_widths[col_idx] + 1;
+            visible_columns.push(col_idx);
+            if used_width > viewport_width {
+                break;
+            }
+        }
+
+        visible_columns
+    }
+
     /// Update horizontal scroll offset to keep cursor visible
     fn update_horizontal_scroll(&mut self, viewport_width: usize) {
         if !self.horizontal_scroll_enabled {
             return;
         }
 
-        // Calculate which columns are visible
-        let mut total_width = 0;
-        let mut visible_end = self.horizontal_scroll_offset;
+        let frozen_columns = self.frozen_columns();
 
-        for i in self.horizontal_scroll_offset..self.column_widths.len() {
-            total_width += self.column_widths[i] + 1; // +1 for separator
-            visible_end = i + 1; // Always include current column
-            if total_width > viewport_width {
-                break; // Break after including partially-visible column
-            }
+        if self.cursor_col < frozen_columns {
+            return;
         }
 
+        let scroll_start = frozen_columns
+            .saturating_add(self.horizontal_scroll_offset)
+            .min(self.column_widths.len());
+        let visible_columns = Self::calculate_visible_columns(
+            &self.column_widths,
+            viewport_width,
+            frozen_columns,
+            self.horizontal_scroll_offset,
+            true,
+        );
+        let visible_scroll_end = visible_columns
+            .iter()
+            .copied()
+            .filter(|&col_idx| col_idx >= frozen_columns)
+            .next_back()
+            .map(|last_col| last_col + 1)
+            .unwrap_or(scroll_start);
+
         // Scroll right if cursor is beyond visible area
-        if self.cursor_col >= visible_end {
+        if self.cursor_col >= visible_scroll_end && visible_scroll_end < self.column_widths.len() {
             self.horizontal_scroll_offset += 1;
         }
 
         // Scroll left if cursor is before visible area
-        if self.cursor_col < self.horizontal_scroll_offset {
-            self.horizontal_scroll_offset = self.cursor_col;
+        if self.cursor_col < scroll_start {
+            self.horizontal_scroll_offset = self.cursor_col.saturating_sub(frozen_columns);
         }
     }
 
     fn move_left(&mut self) {
         if self.cursor_col > 0 {
             self.cursor_col -= 1;
-            // Auto-scroll left if cursor moves before visible area
-            if self.horizontal_scroll_enabled && self.cursor_col < self.horizontal_scroll_offset {
-                self.horizontal_scroll_offset = self.cursor_col;
+            // Auto-scroll left if cursor moves before the visible scrollable area.
+            if self.horizontal_scroll_enabled {
+                let frozen_columns = self.frozen_columns();
+                let scroll_start = frozen_columns
+                    .saturating_add(self.horizontal_scroll_offset)
+                    .min(self.column_widths.len());
+                if self.cursor_col >= frozen_columns && self.cursor_col < scroll_start {
+                    self.horizontal_scroll_offset = self.cursor_col.saturating_sub(frozen_columns);
+                }
             }
         }
     }
@@ -1258,22 +1326,16 @@ impl TuiState {
 
         let visible_start = self.scroll_offset;
 
-        // Calculate visible column range
-        let (visible_col_start, visible_col_end) = if self.horizontal_scroll_enabled {
-            // Calculate which columns fit in viewport
-            let mut total_width = 0;
-            let mut end = self.horizontal_scroll_offset;
-
-            for i in self.horizontal_scroll_offset..self.column_widths.len() {
-                total_width += self.column_widths[i] + 1; // +1 for separator
-                end = i + 1; // Always include current column
-                if total_width > viewport_width {
-                    break; // Break after including partially-visible column
-                }
-            }
-            (self.horizontal_scroll_offset, end)
+        let visible_columns: Vec<usize> = if self.horizontal_scroll_enabled {
+            Self::calculate_visible_columns(
+                &self.column_widths,
+                viewport_width,
+                self.frozen_columns(),
+                self.horizontal_scroll_offset,
+                true,
+            )
         } else {
-            (0, self.sheet_data.width())
+            (0..self.sheet_data.width()).collect()
         };
 
         // Clone headers to avoid borrow issues
@@ -1286,8 +1348,7 @@ impl TuiState {
         let header_cells: Vec<Cell> = headers
             .iter()
             .enumerate()
-            .skip(visible_col_start)
-            .take(visible_col_end - visible_col_start)
+            .filter(|(col_idx, _)| visible_columns.contains(col_idx))
             .map(|(col_idx, h)| {
                 let mut style = Style::default()
                     .fg(colors.header_fg)
@@ -1320,8 +1381,7 @@ impl TuiState {
                 let cells: Vec<Cell> = row
                     .iter()
                     .enumerate()
-                    .skip(visible_col_start)
-                    .take(visible_col_end - visible_col_start)
+                    .filter(|(col_idx, _)| visible_columns.contains(col_idx))
                     .map(|(col_idx, cell)| {
                         // Start with cell type color
                         let mut style = Style::default().fg(colors.cell_color(cell));
@@ -1376,9 +1436,9 @@ impl TuiState {
         // Calculate column widths
         let col_widths: Vec<Constraint> = if self.horizontal_scroll_enabled {
             // Use fixed widths based on content
-            self.column_widths[visible_col_start..visible_col_end]
+            visible_columns
                 .iter()
-                .map(|&w| Constraint::Length(w as u16))
+                .map(|&col_idx| Constraint::Length(self.column_widths[col_idx] as u16))
                 .collect()
         } else {
             // Use percentage-based widths (current behavior)
@@ -1414,13 +1474,40 @@ impl TuiState {
         let current_cell_value = cell.map(|v| v.to_string()).unwrap_or_default();
 
         // Format sheet dimensions with scroll indicator
-        let sheet_dims = if self.horizontal_scroll_enabled && self.horizontal_scroll_offset > 0 {
+        let first_visible_col = visible_columns
+            .first()
+            .and_then(|&col_idx| headers.get(col_idx))
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        let last_visible_col = visible_columns
+            .last()
+            .and_then(|&col_idx| headers.get(col_idx))
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        let frozen_columns = self.frozen_columns();
+        let sheet_dims = if self.horizontal_scroll_enabled
+            && (self.horizontal_scroll_offset > 0 || frozen_columns > 0)
+        {
+            let visible_summary = format!("showing {}-{}", first_visible_col, last_visible_col);
+            let frozen_summary = if frozen_columns > 0 {
+                format!(" | frozen first {}", frozen_columns)
+            } else {
+                String::new()
+            };
+            format!(
+                "{} rows × {} columns ({}{})",
+                self.sheet_data.height(),
+                self.sheet_data.width(),
+                visible_summary,
+                frozen_summary
+            )
+        } else if self.horizontal_scroll_enabled {
             let first_col = headers
-                .get(visible_col_start)
+                .get(*visible_columns.first().unwrap_or(&0))
                 .map(|s| s.as_str())
                 .unwrap_or("?");
             let last_col = headers
-                .get(visible_col_end.saturating_sub(1))
+                .get(*visible_columns.last().unwrap_or(&0))
                 .map(|s| s.as_str())
                 .unwrap_or("?");
             format!(
@@ -2202,5 +2289,17 @@ mod tests {
         assert_eq!(col_to_letter(col_a), "A");
         assert_eq!(col_to_letter(col_z), "Z");
         assert_eq!(col_to_letter(col_aa), "AA");
+    }
+
+    #[test]
+    fn test_calculate_visible_columns_without_freeze() {
+        let visible = TuiState::calculate_visible_columns(&[5, 5, 5, 5], 11, 0, 1, true);
+        assert_eq!(visible, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_calculate_visible_columns_with_frozen_columns() {
+        let visible = TuiState::calculate_visible_columns(&[4, 4, 4, 4, 4], 14, 2, 1, true);
+        assert_eq!(visible, vec![0, 1, 3]);
     }
 }

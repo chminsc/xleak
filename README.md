@@ -251,6 +251,7 @@ xleak --config /path/to/config.toml file.xlsx -i
    [ui]
    max_rows = 50
    column_width = 30
+   frozen_columns = 3
 
    [keybindings]
    profile = "vim"
@@ -291,12 +292,16 @@ max_rows = 50
 
 # Default maximum column width in characters
 column_width = 30
+
+# Number of leading columns to keep visible during horizontal scrolling in TUI mode
+frozen_columns = 0
 ```
 
 **Notes:**
 - `max_rows` only affects non-interactive display mode (`xleak file.xlsx`)
 - Interactive TUI mode (`-i`) always shows all rows with lazy loading for large files
 - `column_width` applies to both modes and can be overridden with `-w` flag
+- `frozen_columns` only affects interactive TUI horizontal scrolling and works with `-i --horizontal-scroll`
 
 #### Keybindings
 
