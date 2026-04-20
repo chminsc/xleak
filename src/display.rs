@@ -31,6 +31,7 @@ fn format_cell_value(value: &str, max_width: usize, wrap: bool) -> String {
 }
 
 /// Display sheet data as a formatted table in the terminal
+#[allow(clippy::too_many_arguments)]
 pub fn display_table(
     data: &SheetData,
     sheet_name: &str,
@@ -95,7 +96,9 @@ pub fn display_table(
                         .and_then(|formula_row| formula_row.get(col_idx))
                         .and_then(|f| f.as_ref())
                         .cloned()
-                        .unwrap_or_else(|| format_cell_for_display(cell, row, percentage_row_marker_columns))
+                        .unwrap_or_else(|| {
+                            format_cell_for_display(cell, row, percentage_row_marker_columns)
+                        })
                 } else {
                     format_cell_for_display(cell, row, percentage_row_marker_columns)
                 };
@@ -154,8 +157,8 @@ pub fn export_csv(data: &SheetData) -> Result<()> {
             .iter()
             .map(|cell| {
                 let val = cell.to_string();
-                // Quote if contains comma or quotes
-                if val.contains(',') || val.contains('"') {
+                // Quote if contains characters that would break a CSV field.
+                if val.contains([',', '"', '\n', '\r']) {
                     format!("\"{}\"", val.replace('"', "\"\""))
                 } else {
                     val

@@ -1,98 +1,271 @@
 use anyhow::{Context, Result, anyhow};
 use calamine::{Data, Range, Reader, Sheets, Table, open_workbook_auto};
 use chrono::{Duration, NaiveDate};
+use std::fs;
 use std::path::Path;
 
 pub struct Workbook {
-    sheets: Sheets<std::io::BufReader<std::fs::File>>,
+    source: WorkbookSource,
+}
+
+enum WorkbookSource {
+    Excel(Sheets<std::io::BufReader<std::fs::File>>),
+    Csv { sheet_name: String, content: String },
 }
 
 impl Workbook {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let sheets = open_workbook_auto(path.as_ref()).context("Failed to open workbook")?;
+        let path = path.as_ref();
 
-        Ok(Self { sheets })
+        if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("csv"))
+        {
+            let content = fs::read_to_string(path).context("Failed to read CSV file")?;
+            let sheet_name = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+                .unwrap_or("CSV")
+                .to_string();
+
+            return Ok(Self {
+                source: WorkbookSource::Csv {
+                    sheet_name,
+                    content,
+                },
+            });
+        }
+
+        let sheets = open_workbook_auto(path).context("Failed to open workbook")?;
+
+        Ok(Self {
+            source: WorkbookSource::Excel(sheets),
+        })
     }
 
     pub fn sheet_names(&self) -> Vec<String> {
-        self.sheets.sheet_names()
+        match &self.source {
+            WorkbookSource::Excel(sheets) => sheets.sheet_names(),
+            WorkbookSource::Csv { sheet_name, .. } => vec![sheet_name.clone()],
+        }
     }
 
     /// Loads all rows eagerly into memory
     pub fn load_sheet(&mut self, name: &str) -> Result<SheetData> {
-        let range = self
-            .sheets
-            .worksheet_range(name)
-            .with_context(|| format!("Sheet '{name}' not found"))?;
+        match &mut self.source {
+            WorkbookSource::Excel(sheets) => {
+                let range = sheets
+                    .worksheet_range(name)
+                    .with_context(|| format!("Sheet '{name}' not found"))?;
 
-        // Try to load formulas, but don't fail if they're not available
-        let formula_range = self.sheets.worksheet_formula(name).ok();
+                // Try to load formulas, but don't fail if they're not available
+                let formula_range = sheets.worksheet_formula(name).ok();
 
-        Ok(SheetData::from_range_with_formulas(range, formula_range))
+                Ok(SheetData::from_range_with_formulas(range, formula_range))
+            }
+            WorkbookSource::Csv {
+                sheet_name,
+                content,
+            } => {
+                ensure_csv_sheet_name(name, sheet_name)?;
+                Ok(SheetData::from_range_with_formulas(
+                    csv_content_to_range(content)?,
+                    None,
+                ))
+            }
+        }
     }
 
     /// Loads only headers; rows fetched on demand
     pub fn load_sheet_lazy(&mut self, name: &str) -> Result<LazySheetData> {
-        let range = self
-            .sheets
-            .worksheet_range(name)
-            .with_context(|| format!("Sheet '{name}' not found"))?;
+        match &mut self.source {
+            WorkbookSource::Excel(sheets) => {
+                let range = sheets
+                    .worksheet_range(name)
+                    .with_context(|| format!("Sheet '{name}' not found"))?;
 
-        // Try to load formulas, but don't fail if they're not available
-        let formula_range = self.sheets.worksheet_formula(name).ok();
+                // Try to load formulas, but don't fail if they're not available
+                let formula_range = sheets.worksheet_formula(name).ok();
 
-        Ok(LazySheetData::from_range_with_formulas(
-            range,
-            formula_range,
-        ))
+                Ok(LazySheetData::from_range_with_formulas(
+                    range,
+                    formula_range,
+                ))
+            }
+            WorkbookSource::Csv {
+                sheet_name,
+                content,
+            } => {
+                ensure_csv_sheet_name(name, sheet_name)?;
+                Ok(LazySheetData::from_range_with_formulas(
+                    csv_content_to_range(content)?,
+                    None,
+                ))
+            }
+        }
     }
 
     // ===== Table API (Xlsx only) =====
 
     /// Load table metadata from the workbook (Xlsx only)
     pub fn load_tables(&mut self) -> Result<()> {
-        match &mut self.sheets {
-            Sheets::Xlsx(xlsx) => xlsx
+        match &mut self.source {
+            WorkbookSource::Excel(Sheets::Xlsx(xlsx)) => xlsx
                 .load_tables()
                 .context("Failed to load table metadata")
                 .map_err(|e| anyhow!("{e}")),
-            _ => Err(anyhow!("Tables are only supported in .xlsx files")),
+            WorkbookSource::Excel(_) | WorkbookSource::Csv { .. } => {
+                Err(anyhow!("Tables are only supported in .xlsx files"))
+            }
         }
     }
 
     /// Get all table names in the workbook (Xlsx only)
     pub fn table_names(&self) -> Result<Vec<String>> {
-        match &self.sheets {
-            Sheets::Xlsx(xlsx) => Ok(xlsx.table_names().iter().map(|s| (*s).clone()).collect()),
-            _ => Err(anyhow!("Tables are only supported in .xlsx files")),
+        match &self.source {
+            WorkbookSource::Excel(Sheets::Xlsx(xlsx)) => {
+                Ok(xlsx.table_names().iter().map(|s| (*s).clone()).collect())
+            }
+            WorkbookSource::Excel(_) | WorkbookSource::Csv { .. } => {
+                Err(anyhow!("Tables are only supported in .xlsx files"))
+            }
         }
     }
 
     /// Get table names in a specific sheet (Xlsx only)
     pub fn table_names_in_sheet(&self, sheet_name: &str) -> Result<Vec<String>> {
-        match &self.sheets {
-            Sheets::Xlsx(xlsx) => Ok(xlsx
+        match &self.source {
+            WorkbookSource::Excel(Sheets::Xlsx(xlsx)) => Ok(xlsx
                 .table_names_in_sheet(sheet_name)
                 .iter()
                 .map(|s| (*s).clone())
                 .collect()),
-            _ => Err(anyhow!("Tables are only supported in .xlsx files")),
+            WorkbookSource::Excel(_) | WorkbookSource::Csv { .. } => {
+                Err(anyhow!("Tables are only supported in .xlsx files"))
+            }
         }
     }
 
     /// Get table data by name (Xlsx only)
     pub fn table_by_name(&mut self, table_name: &str) -> Result<TableData> {
-        match &mut self.sheets {
-            Sheets::Xlsx(xlsx) => {
+        match &mut self.source {
+            WorkbookSource::Excel(Sheets::Xlsx(xlsx)) => {
                 let table = xlsx
                     .table_by_name(table_name)
                     .map_err(|e| anyhow!("Table '{table_name}' not found: {e}"))?;
 
                 Ok(TableData::from_calamine_table(table))
             }
-            _ => Err(anyhow!("Tables are only supported in .xlsx files")),
+            WorkbookSource::Excel(_) | WorkbookSource::Csv { .. } => {
+                Err(anyhow!("Tables are only supported in .xlsx files"))
+            }
         }
     }
+}
+
+fn ensure_csv_sheet_name(requested: &str, sheet_name: &str) -> Result<()> {
+    if requested == sheet_name {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "Sheet '{requested}' not found. Available sheets: {sheet_name}"
+        ))
+    }
+}
+
+fn csv_content_to_range(content: &str) -> Result<Range<Data>> {
+    let records = parse_csv_records(content)?;
+
+    if records.is_empty() {
+        return Ok(Range::empty());
+    }
+
+    let width = records.iter().map(Vec::len).max().unwrap_or(0);
+    if width == 0 {
+        return Ok(Range::empty());
+    }
+
+    let mut range = Range::new((0, 0), ((records.len() - 1) as u32, (width - 1) as u32));
+
+    for (row_idx, row) in records.into_iter().enumerate() {
+        for (col_idx, value) in row.into_iter().enumerate() {
+            range[(row_idx, col_idx)] = if value.is_empty() {
+                Data::Empty
+            } else {
+                Data::String(value)
+            };
+        }
+    }
+
+    Ok(range)
+}
+
+fn parse_csv_records(content: &str) -> Result<Vec<Vec<String>>> {
+    if content.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut field = String::new();
+    let mut chars = content.chars().peekable();
+    let mut in_quotes = false;
+
+    while let Some(ch) = chars.next() {
+        if in_quotes {
+            match ch {
+                '"' => {
+                    if chars.peek() == Some(&'"') {
+                        field.push('"');
+                        chars.next();
+                    } else {
+                        in_quotes = false;
+                    }
+                }
+                _ => field.push(ch),
+            }
+            continue;
+        }
+
+        match ch {
+            '"' if field.is_empty() => in_quotes = true,
+            ',' => {
+                row.push(std::mem::take(&mut field));
+            }
+            '\n' => {
+                row.push(std::mem::take(&mut field));
+                rows.push(std::mem::take(&mut row));
+            }
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                row.push(std::mem::take(&mut field));
+                rows.push(std::mem::take(&mut row));
+            }
+            _ => field.push(ch),
+        }
+    }
+
+    if in_quotes {
+        return Err(anyhow!("Invalid CSV: unterminated quoted field"));
+    }
+
+    if !field.is_empty() || !row.is_empty() || !(content.ends_with('\n') || content.ends_with('\r'))
+    {
+        row.push(field);
+        rows.push(row);
+    }
+
+    if let Some(first_row) = rows.first_mut()
+        && let Some(first_field) = first_row.first_mut()
+    {
+        *first_field = first_field.trim_start_matches('\u{feff}').to_string();
+    }
+
+    Ok(rows)
 }
 
 /// Eagerly-loaded sheet data (loads all rows immediately)
@@ -563,10 +736,7 @@ mod tests {
             CellValue::String("%".to_string()),
             CellValue::Float(0.222),
         ];
-        assert_eq!(
-            format_cell_for_display(&row[2], &row, &[1, 2]),
-            "22.2%"
-        );
+        assert_eq!(format_cell_for_display(&row[2], &row, &[1, 2]), "22.2%");
     }
 
     #[test]
@@ -654,6 +824,42 @@ mod tests {
             assert!(!sheet_names.is_empty(), "Should have at least one sheet");
         }
         // If file doesn't exist, test passes (integration test needs real file)
+    }
+
+    #[test]
+    fn test_parse_csv_records_handles_quotes_and_newlines() {
+        let rows = parse_csv_records("Name,Note\nAlice,\"Hello, CSV\"\nBob,\"Line 1\nLine 2\"\n")
+            .expect("CSV should parse");
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1], vec!["Alice", "Hello, CSV"]);
+        assert_eq!(rows[2], vec!["Bob", "Line 1\nLine 2"]);
+    }
+
+    #[test]
+    fn test_workbook_open_csv_file() {
+        let sheet_name = format!("xleak_test_csv_{}", std::process::id());
+        let path = std::env::temp_dir().join(format!("{sheet_name}.csv"));
+        fs::write(
+            &path,
+            "Name,Age,Note\nAlice,30,\"Hello, CSV\"\nBob,25,\"Line 1\nLine 2\"\n\"Charlie \"\"CJ\"\"\",,\"Uses quotes\"",
+        )
+        .expect("test CSV should be written");
+
+        let mut wb = Workbook::open(&path).expect("CSV should open");
+        assert_eq!(wb.sheet_names(), vec![sheet_name.clone()]);
+
+        let data = wb.load_sheet(&sheet_name).expect("CSV sheet should load");
+
+        assert_eq!(data.headers, vec!["Name", "Age", "Note"]);
+        assert_eq!(data.width, 3);
+        assert_eq!(data.height, 3);
+        assert_eq!(data.rows[0][2].to_raw_string(), "Hello, CSV");
+        assert_eq!(data.rows[1][2].to_raw_string(), "Line 1\nLine 2");
+        assert_eq!(data.rows[2][0].to_raw_string(), "Charlie \"CJ\"");
+        assert!(matches!(data.rows[2][1], CellValue::Empty));
+
+        fs::remove_file(path).expect("test CSV should be removed");
     }
 
     #[test]

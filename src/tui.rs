@@ -450,11 +450,7 @@ impl ProgressInfo {
     }
 
     fn percentage(&self) -> usize {
-        if self.total == 0 {
-            100
-        } else {
-            (self.current * 100) / self.total
-        }
+        (self.current * 100).checked_div(self.total).unwrap_or(100)
     }
 
     fn format(&self) -> String {
@@ -1228,26 +1224,23 @@ impl TuiState {
         self.scroll_offset = 0;
         self.horizontal_scroll_offset = 0;
 
-        let freeze_message = if applied_rows != requested_rows || applied_columns != requested_columns
-        {
-            format!(
-                "Frozen panes at {} (applied rows: {}, cols: {} in current window)",
-                self.current_cell_address(),
-                self.frozen_rows(),
-                self.frozen_columns()
-            )
-        } else {
-            format!(
-                "Frozen panes at {} (rows: {}, cols: {})",
-                self.current_cell_address(),
-                self.frozen_rows(),
-                self.frozen_columns()
-            )
-        };
-        self.copy_feedback = Some((
-            freeze_message,
-            Instant::now(),
-        ));
+        let freeze_message =
+            if applied_rows != requested_rows || applied_columns != requested_columns {
+                format!(
+                    "Frozen panes at {} (applied rows: {}, cols: {} in current window)",
+                    self.current_cell_address(),
+                    self.frozen_rows(),
+                    self.frozen_columns()
+                )
+            } else {
+                format!(
+                    "Frozen panes at {} (rows: {}, cols: {})",
+                    self.current_cell_address(),
+                    self.frozen_rows(),
+                    self.frozen_columns()
+                )
+            };
+        self.copy_feedback = Some((freeze_message, Instant::now()));
     }
 
     fn page_up(&mut self, page_size: usize) {
@@ -1482,15 +1475,22 @@ impl TuiState {
                 let background_segments: Vec<(u16, u16, Style)> = column_layouts
                     .iter()
                     .skip(layout_idx)
-                    .scan(width, |remaining_width, &(segment_col_idx, segment_x, segment_width)| {
-                        if *remaining_width == 0 {
-                            return None;
-                        }
+                    .scan(
+                        width,
+                        |remaining_width, &(segment_col_idx, segment_x, segment_width)| {
+                            if *remaining_width == 0 {
+                                return None;
+                            }
 
-                        let actual_width = (*remaining_width).min(segment_width);
-                        *remaining_width = (*remaining_width).saturating_sub(segment_width + 1);
-                        Some((segment_x, actual_width, self.header_style(colors, segment_col_idx)))
-                    })
+                            let actual_width = (*remaining_width).min(segment_width);
+                            *remaining_width = (*remaining_width).saturating_sub(segment_width + 1);
+                            Some((
+                                segment_x,
+                                actual_width,
+                                self.header_style(colors, segment_col_idx),
+                            ))
+                        },
+                    )
                     .collect();
 
                 Self::render_overflow_background_segments(frame, inner_y, &background_segments);
@@ -1541,26 +1541,29 @@ impl TuiState {
                     let background_segments: Vec<(u16, u16, Style)> = column_layouts
                         .iter()
                         .skip(layout_idx)
-                        .scan(width, |remaining_width, &(segment_col_idx, segment_x, segment_width)| {
-                            if *remaining_width == 0 {
-                                return None;
-                            }
+                        .scan(
+                            width,
+                            |remaining_width, &(segment_col_idx, segment_x, segment_width)| {
+                                if *remaining_width == 0 {
+                                    return None;
+                                }
 
-                            let actual_width = (*remaining_width).min(segment_width);
-                            *remaining_width = (*remaining_width).saturating_sub(segment_width + 1);
-                            let segment_cell =
-                                row.get(segment_col_idx).unwrap_or(&empty_cell);
-                            Some((
-                                segment_x,
-                                actual_width,
-                                self.data_cell_style(
-                                    colors,
-                                    *row_idx,
-                                    segment_col_idx,
-                                    segment_cell,
-                                ),
-                            ))
-                        })
+                                let actual_width = (*remaining_width).min(segment_width);
+                                *remaining_width =
+                                    (*remaining_width).saturating_sub(segment_width + 1);
+                                let segment_cell = row.get(segment_col_idx).unwrap_or(&empty_cell);
+                                Some((
+                                    segment_x,
+                                    actual_width,
+                                    self.data_cell_style(
+                                        colors,
+                                        *row_idx,
+                                        segment_col_idx,
+                                        segment_cell,
+                                    ),
+                                ))
+                            },
+                        )
                         .collect();
 
                     Self::render_overflow_background_segments(frame, row_y, &background_segments);
@@ -1570,12 +1573,9 @@ impl TuiState {
                         row_y,
                         overflow_width.min(inner_right.saturating_sub(x)),
                         &text,
-                        Self::style_without_background(self.data_cell_style(
-                            colors,
-                            *row_idx,
-                            col_idx,
-                            cell,
-                        )),
+                        Self::style_without_background(
+                            self.data_cell_style(colors, *row_idx, col_idx, cell),
+                        ),
                     );
                 }
             }
@@ -1907,10 +1907,10 @@ impl TuiState {
         let cursor_col = self.cursor_col;
         let current_cell_value = {
             let (rows, _) = self.sheet_data.get_rows(self.cursor_row, 1);
-            rows.first()
-                .and_then(|row| row.get(cursor_col).map(|cell| {
-                    format_cell_for_display(cell, row, &percentage_row_marker_columns)
-                }))
+            rows.first().and_then(|row| {
+                row.get(cursor_col)
+                    .map(|cell| format_cell_for_display(cell, row, &percentage_row_marker_columns))
+            })
         }
         .or_else(|| cell.map(|v| v.to_string()))
         .unwrap_or_default();

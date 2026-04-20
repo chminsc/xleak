@@ -11,7 +11,7 @@ mod workbook;
 #[command(name = "xleak")]
 #[command(author, version, about = "Expose Excel files in your terminal - no Microsoft Excel required", long_about = None)]
 struct Cli {
-    /// Path to the Excel file (.xlsx, .xls, .xlsm, .ods)
+    /// Path to the spreadsheet file (.xlsx, .xls, .xlsm, .xlsb, .ods, .csv)
     #[arg(value_name = "FILE")]
     file: PathBuf,
 
@@ -243,8 +243,7 @@ fn display_table_data(table: &workbook::TableData, max_rows: usize) -> Result<()
         let cells: Vec<Cell> = row
             .iter()
             .map(|cell| {
-                let display_value =
-                    workbook::format_cell_for_display(cell, row, &[]);
+                let display_value = workbook::format_cell_for_display(cell, row, &[]);
                 let cell_obj = Cell::new(&display_value);
                 // Style based on type
                 match cell {
@@ -338,8 +337,8 @@ fn export_table_csv(table: &workbook::TableData) -> Result<()> {
             .iter()
             .map(|cell| {
                 let val = cell.to_raw_string();
-                // Quote if contains comma or quotes
-                if val.contains(',') || val.contains('"') {
+                // Quote if contains characters that would break a CSV field.
+                if val.contains([',', '"', '\n', '\r']) {
                     format!("\"{}\"", val.replace('"', "\"\""))
                 } else {
                     val

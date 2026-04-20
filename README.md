@@ -25,7 +25,7 @@ Inspired by [doxx](https://github.com/bgreenwell/doxx), `xleak` brings Excel spr
 - **Excel Table support** - list and extract named tables (.xlsx only)
 - **Multiple export formats** - CSV, JSON, plain text
 - **Blazing fast** - powered by `calamine`, the fastest Excel parser in Rust
-- **Multiple file formats** - supports `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods`
+- **Multiple file formats** - supports `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods`, `.csv`
 
 ### Interactive TUI Features
 - **Full-text search** - search across all cells with `/`, navigate with `n`/`N`
